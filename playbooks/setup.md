@@ -112,6 +112,8 @@ A daemon that has run keeps a state directory (`{{bin}} state check` names it an
 - **`setup`:** setup from the browser. A `setup` scope puts a Setup page in the web view (`{{bin}} web`), where the owner starts a session, picks a model and talks to an agent that has no shell. `{{bin}} init setup [--scope ID]` adds the scope (default ID `setup`; `--dry-run` prints it). It writes the config file, so once the daemon has run, follow it with `config validate` and `config apply` on that file to make it a new generation. A daemon started with no config file and no stored generation already runs this scope as generation 1. A session starts from the Setup page, or with `{{bin}} actions run setup start --scope setup --input "opus +shell"` (one of the binding's `models`, then `+name` for each of its grants to turn on: `shell`, `connectors`). Its agent looks around through probes (or a shell, if turned on) and proposes config changes that the owner approves and applies from the page. Offer it when the owner would rather set up from the browser.
 - **`introspection`:** lets agents report what breaks for them (a missing tool, a stale instruction), with an optional daily triage that opens fix Work and a sweep that folds their corrections into the project's rule files. `{{bin}} adapters introspection` shows its parts.
 
+  When the owner already runs it on another scope, ask whether the new scope should have it too, and say what it costs to leave out: without it the new project's agents have no way to report what breaks for them, even a push that fails. Adding it means an `introspection` entry in the scope (copy the other scope's, with a triage `cron` if they want a daily triage, or none), `introspection.report-issue`, `introspection.correction` and `introspection.problem` in the scope's `authorization.operations` and the agent binding's `operations`, and, with a triage, the `triage` and `fixes` routes (`handler` `introspection`, `config.work` `triage` and `fix`) with their bindings and operations as the other scope has them.
+
 An agent in a workspace-free scope (a Slack scope, say) often needs instructions and reference files but no repository. Offer a plain folder for them: the claude-code binding's `"dir": "/abs/folder"` runs every turn in that folder as it is, with no git and nothing copied, so its `CLAUDE.md` is the agent's instructions and an edit counts from the next turn. `init slack` asks for it (or takes `--dir`). Ask whether they have such a folder before reaching for a checkout. A binding with `dir` takes no `resource`.
 
 A Slack scope can have a git workspace instead, when its agent should work on code: give its agent binding a `resource` like the GitHub one below, and each thread's agent gets its own worktree of that checkout.
@@ -146,7 +148,7 @@ Connections first, then one scope per project. A scope's `authorization` is its 
         "read_context", "emit", "wait", "declare_outcome",
         "github.context", "github.issue.view", "github.issue.comment", "github.issue.list", "github.issue.create",
         "github.pr.list", "github.pr.view", "github.pr.create", "github.pr.comment", "github.pr.reply", "github.pr.review", "github.checks",
-        "github.attachment.upload", "github.attachment.get", "github.wait",
+        "github.attachment.upload", "github.attachment.get", "github.wait", "github.git.credential",
         "github.hold.status", "github.hold"]},
       "bindings": [
         {"name": "agent", "executor": "claude-code", "connection": "github",
@@ -154,7 +156,7 @@ Connections first, then one scope per project. A scope's `authorization` is its 
          "operations": ["read_context", "wait", "declare_outcome",
            "github.context", "github.issue.view", "github.issue.comment", "github.issue.list", "github.issue.create",
            "github.pr.list", "github.pr.view", "github.pr.create", "github.pr.comment", "github.pr.reply", "github.pr.review", "github.checks",
-           "github.attachment.upload", "github.attachment.get", "github.wait"],
+           "github.attachment.upload", "github.attachment.get", "github.wait", "github.git.credential"],
          "secret_names": [],
          "config": {"branch": "agent/issue-{number}"},
          "resource": {"provider": "git", "config": {"checkout": "/Users/me/Code/web", "mode": "work", "copy": [".env"], "setup": "npm ci", "setup_when": ["package-lock.json"]}}},
@@ -174,6 +176,8 @@ Connections first, then one scope per project. A scope's `authorization` is its 
   ]
 }
 ```
+
+A binding with a git `resource` needs `github.git.credential` among its operations, and the scope's `authorization.operations` must allow it. The agent never calls it: git does, through the `{{bin}} git-credential` helper the workspace sets up. On a connection with `"git": "bot"` that helper is git's only credential, so without the operation every `git push` fails with `no git credential: 403 forbidden: execution authority rejected`. `init github` grants it to a binding with a workspace, and `doctor` warns (`git_credential_not_granted`) when a workspace binding lacks it. A `--no-workspace` scope pushes nothing and doesn't need it.
 
 Other `github` entry fields:
 - `labels`: `claimed`, `scheduled`, `help`, `review`, `done`, `skip[]`, `require[]`. The defaults are Open Supervisor's names (`agent-in-progress`, `scheduled`, …).
