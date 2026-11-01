@@ -63,7 +63,7 @@ func (a Actions) Panels(ctx context.Context, t extension.ActionTarget) ([]extens
 	if w.Context.Schema == SchemaContext {
 		_ = json.Unmarshal(w.Context.Data, &s)
 	}
-	labels := grantLabels(s.Grants, a.grants(ctx, t.Scope))
+	labels := grantLabels(s.Grants, Grants(t.Scope))
 	lead := "It has no shell: it only talks and asks here, and nothing it says changes your configuration."
 	if len(labels) > 0 {
 		lead = "You gave it more than talking for this session: " + strings.Join(labels, "; ") + "."

@@ -84,6 +84,20 @@ func TestModelsAndChoose(t *testing.T) {
 	}
 }
 
+// TestGrants: the setup binding's grants come from the scope the host
+// sends, with nothing read from the configuration text.
+func TestGrants(t *testing.T) {
+	scope := domain.Scope{ID: "setup",
+		Routes:   []domain.Route{{Name: "setup", Handler: Type, Binding: "agent"}},
+		Bindings: []domain.Binding{{Name: "agent", Grants: []domain.BindingGrant{{Name: "shell", Label: "A shell"}}}}}
+	if g := Grants(scope); len(g) != 1 || g[0].Name != "shell" || g[0].Label != "A shell" {
+		t.Fatalf("grants: %+v", g)
+	}
+	if Grants(domain.Scope{}) != nil {
+		t.Fatal("grants without a setup route")
+	}
+}
+
 // TestParseStart: the start input names at most one model and +name for
 // each grant to turn on; a model left out is the first offered.
 func TestParseStart(t *testing.T) {

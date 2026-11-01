@@ -94,58 +94,6 @@ func Grants(scope domain.Scope) []domain.BindingGrant {
 	return b.Grants
 }
 
-// grants are what the scope's setup binding offers. The protocol's scope
-// carries a binding's executor and config but not its grants, so a scope
-// without them is read from the configuration text (permission
-// config.read), where the binding's grants are written. A scope from an
-// included folder, whose text the host doesn't share, offers none.
-func (a Actions) grants(ctx context.Context, scope domain.Scope) []domain.BindingGrant {
-	if g := Grants(scope); len(g) > 0 || a.Config == nil {
-		return g
-	}
-	b, ok := binding(scope)
-	if !ok {
-		return nil
-	}
-	base, err := a.Config.Base(ctx)
-	if err != nil {
-		return nil
-	}
-	var doc struct {
-		Scopes []struct {
-			ID       string `json:"id"`
-			Bindings []struct {
-				Name   string `json:"name"`
-				Grants []struct {
-					Name       string          `json:"name"`
-					Label      string          `json:"label"`
-					Operations []string        `json:"operations"`
-					Config     json.RawMessage `json:"config"`
-				} `json:"grants"`
-			} `json:"bindings"`
-		} `json:"scopes"`
-	}
-	if json.Unmarshal(base.Text, &doc) != nil {
-		return nil
-	}
-	for _, sc := range doc.Scopes {
-		if sc.ID != string(scope.ID) {
-			continue
-		}
-		for _, x := range sc.Bindings {
-			if x.Name != b.Name {
-				continue
-			}
-			var out []domain.BindingGrant
-			for _, g := range x.Grants {
-				out = append(out, domain.BindingGrant{Name: g.Name, Label: g.Label, Operations: g.Operations, Config: g.Config})
-			}
-			return out
-		}
-	}
-	return nil
-}
-
 // parseStart reads the start action's input: at most one of models and a
 // "+name" for each grant to turn on, in any order and separated by spaces
 // ("opus +shell"). With models offered and none named, it is the first.
@@ -261,7 +209,7 @@ func (a Actions) Actions(ctx context.Context, t extension.ActionTarget) ([]exten
 				return err
 			}
 			start := extension.Action{ID: ActionStart, Label: "Start a setup session"}
-			models, grants := Models(t.Scope), a.grants(ctx, t.Scope)
+			models, grants := Models(t.Scope), Grants(t.Scope)
 			if len(models) > 0 {
 				start.Prompt, start.Choices = "the model the agent uses", models
 			}
@@ -340,7 +288,7 @@ func (a Actions) start(ctx context.Context, c extension.ActionCall) (extension.A
 	if open {
 		return refuseAction("session_open", "this scope already has a setup session; end it before starting another")
 	}
-	s, err := parseStart(c.Input, Models(c.Target.Scope), a.grants(ctx, c.Target.Scope))
+	s, err := parseStart(c.Input, Models(c.Target.Scope), Grants(c.Target.Scope))
 	if err != nil {
 		return extension.ActionPlan{}, err
 	}
