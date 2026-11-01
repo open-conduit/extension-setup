@@ -27,7 +27,7 @@ func TestConversation(t *testing.T) {
 	msgs := Conversation([]domain.AcceptedEvent{
 		ev(5, TypeAnswer, SchemaAnswer, Answer{Question: "q1", Answer: "dotfiles"}),
 		ev(1, TypeMessage, SchemaMessage, Message{Role: RoleAgent, Text: "Claude Code is **signed in**."}),
-		ev(2, TypeMessage, SchemaMessage, Message{Role: RoleOperator, Text: "hello"}),
+		ev(2, TypeMessage, SchemaMessage, Message{Role: RoleOperator, Text: "hello\r\nthere\rnow\x07"}),
 		ev(3, TypeProbe, SchemaProbe, ProbeEvent{Probe: "github.accounts", Command: "gh auth status", Why: "which logins you have"}),
 		ev(4, TypeQuestion, SchemaQuestion, Question{ID: "q1", Text: "Which repository?", Context: "Both are checked out.", Choices: []string{"open-conduit", "dotfiles"}}),
 		ev(6, TypeProposal, SchemaProposal, Proposal{Change: "c1", Op: OpReplace, Pointer: "/scopes/setup/name", Diagnostics: []inproc.ConfigDiagnostic{{Path: "/x"}}}),
@@ -40,7 +40,7 @@ func TestConversation(t *testing.T) {
 	})
 	want := []struct{ from, label, text string }{
 		{extension.MessageAgent, "Assistant", "Claude Code is **signed in**."},
-		{extension.MessageOperator, "", "hello"},
+		{extension.MessageOperator, "", "hello\nthere\nnow"},
 		{extension.MessageNote, "Probe", "The assistant ran gh auth status: which logins you have"},
 		{extension.MessageAgent, "Assistant asks", "Which repository?\n\nBoth are checked out."},
 		{extension.MessageOperator, "", "dotfiles"},

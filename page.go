@@ -168,8 +168,18 @@ func Conversation(events []domain.AcceptedEvent) []extension.PanelMessage {
 	return out
 }
 
-// clipText keeps a message within a panel's text limit.
+// clipText keeps a message within what a panel shows: line breaks as LF,
+// no other control character but tab, valid UTF-8, and within the text
+// limit. A panel with one message over them isn't shown at all, so an
+// operator's message typed with CRLF line breaks emptied the conversation.
 func clipText(s string) string {
+	s = strings.ToValidUTF8(strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(s), "\uFFFD")
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 && r != '\n' && r != '\t' || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
 	if len(s) <= extension.MaxPanelText {
 		return s
 	}
