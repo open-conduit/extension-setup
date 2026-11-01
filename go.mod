@@ -2,7 +2,7 @@ module github.com/open-conduit/extension-setup
 
 go 1.24.2
 
-require github.com/open-conduit/open-conduit v1.10.1-0.20261101105759-191ea1dae959
+require github.com/open-conduit/open-conduit v1.11.0
 
 require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
