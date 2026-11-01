@@ -184,7 +184,11 @@ func (x *Extension) ConfigCandidate(ctx context.Context, w domain.Work) (extensi
 		if err != nil {
 			return err
 		}
-		if moved := refresh(ctx, cs, base, x.config, latest); moved.BaseGeneration != cs.BaseGeneration || moved.BaseHandle != cs.BaseHandle {
+		moved, err := settle(ctx, tx, w, cs, base, x.config, latest)
+		if err != nil {
+			return err
+		}
+		if moved.BaseGeneration != cs.BaseGeneration || moved.BaseHandle != cs.BaseHandle {
 			if err = saveChangeSet(tx, w.ID, moved); err != nil {
 				return err
 			}
