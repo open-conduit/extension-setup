@@ -7,10 +7,13 @@ OPEN_CONDUIT_REF ?= main
 BUILD_DIR ?= .build
 PACKAGE_DIR ?= dist/setup
 LDFLAGS ?= -s -w
+# The package's own setup probes. They run inside its process, so extension
+# check can't see them offline and is told their names.
+OWN_PROBES ?= setup.fs.list,setup.tools
 
-.PHONY: check fmt-check vet test build package certify clean
+.PHONY: check fmt-check vet test build package extension-check certify clean
 
-check: fmt-check vet test build package
+check: fmt-check vet test build package extension-check
 
 fmt-check:
 	@test -z "$$(gofmt -l $$(git ls-files '*.go') $$(git ls-files --others --exclude-standard '*.go'))" || { gofmt -l $$(git ls-files '*.go') $$(git ls-files --others --exclude-standard '*.go'); exit 1; }
@@ -33,6 +36,12 @@ package:
 	$(PACKAGE_DIR)/setup-extension package-manifest > $(PACKAGE_DIR)/open-conduit-extension.json
 	$(PACKAGE_DIR)/setup-extension package-certification > $(PACKAGE_DIR)/certification.json
 	cp -R playbooks $(PACKAGE_DIR)/playbooks
+
+# Lint the built package with the Open Conduit go.mod pins: the manifest, its
+# compatibility, certification.json, and that every operation a playbook
+# names is one the package declares or core registers.
+extension-check: package
+	$(GO) tool open-conduit extension check $(PACKAGE_DIR) --allow $(OWN_PROBES)
 
 # Certification against an Open Conduit build. A ref that doesn't contain
 # the Open Conduit commit go.mod requires can't host the package (it lacks

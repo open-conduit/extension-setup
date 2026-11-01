@@ -2,71 +2,25 @@ package setup
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
-	"sync"
 	"testing"
 
 	"github.com/open-conduit/open-conduit/domain"
-	"github.com/open-conduit/open-conduit/protocol"
-	"github.com/open-conduit/open-conduit/protocol/jsonrpc"
 	"github.com/open-conduit/open-conduit/protocol/sdk"
+	"github.com/open-conduit/open-conduit/protocol/sdk/sdktest"
 	"github.com/open-conduit/open-conduit/storage"
 )
-
-// fakeHost answers kv.get, kv.commit and event.accept from memory and keeps
-// what each commit carried.
-type fakeHost struct {
-	mu      sync.Mutex
-	kv      map[string]string
-	commits []protocol.KVCommitParams
-	accepts []protocol.EventAcceptParams
-}
-
-func (f *fakeHost) handle(_ context.Context, method string, raw json.RawMessage) (any, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	switch method {
-	case "kv.get":
-		var p protocol.KVGetParams
-		_ = json.Unmarshal(raw, &p)
-		v, ok := f.kv[p.Namespace+"/"+p.Key]
-		if !ok {
-			return protocol.KVGetResult{}, nil
-		}
-		return protocol.KVGetResult{Found: true, Entry: protocol.KVEntry{Key: p.Key, Value: []byte(v), Version: "v-" + v}}, nil
-	case "kv.commit":
-		var p protocol.KVCommitParams
-		_ = json.Unmarshal(raw, &p)
-		f.commits = append(f.commits, p)
-		return struct{}{}, nil
-	case "event.accept":
-		var p protocol.EventAcceptParams
-		_ = json.Unmarshal(raw, &p)
-		f.accepts = append(f.accepts, p)
-		return protocol.EventAcceptResult{Added: true}, nil
-	}
-	return nil, protocol.Errorf(protocol.CodeMethodNotFound, method)
-}
-
-func newFakeHost(t *testing.T) (*fakeHost, *sdk.Host) {
-	t.Helper()
-	f := &fakeHost{kv: map[string]string{"setup.changesets/w1": "old"}}
-	hr, ew := io.Pipe()
-	er, hw := io.Pipe()
-	host := jsonrpc.NewConn(hr, hw, f.handle, jsonrpc.Options{})
-	ext := jsonrpc.NewConn(er, ew, func(context.Context, string, json.RawMessage) (any, error) { return nil, nil }, jsonrpc.Options{})
-	t.Cleanup(func() { _ = ew.Close(); _ = hw.Close(); <-host.Done(); <-ext.Done() })
-	return f, sdk.NewHost(ext)
-}
 
 // A transaction with an Event commits through event.accept, its writes and
 // the versions it read going with the Event; one without commits KV alone.
 func TestHostStoreCommits(t *testing.T) {
-	f, h := newFakeHost(t)
-	s := hostStore{host: func() *sdk.Host { return h }}
+	trigger := domain.Event{ID: "trigger", Type: TypeStart, Source: Type, DeliveryID: "start/1"}
+	h := sdktest.New(t, New(BuildOptions{}).Build(),
+		sdktest.WithKV(ChangeSets, "w1", []byte("old")),
+		sdktest.WithEvents("scope", trigger))
+	s := hostStore{host: func() *sdk.Host { return h.Server().Host() }}
 	ctx := context.Background()
+	seeded := len(h.Events())
 	err := s.Transact(ctx, storage.Guard{}, func(tx storage.Tx) error {
 		if v, err := tx.Get(ChangeSets, "w1"); err != nil || string(v) != "old" {
 			t.Fatalf("get: %q %v", v, err)
@@ -79,13 +33,17 @@ func TestHostStoreCommits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(f.accepts) != 1 || len(f.commits) != 0 {
-		t.Fatalf("accepts %d commits %d", len(f.accepts), len(f.commits))
+	events := h.Events()
+	if len(events) != seeded+1 || len(h.Commits()) != 0 {
+		t.Fatalf("events %d commits %d", len(events)-seeded, len(h.Commits()))
 	}
-	a := f.accepts[0]
-	if a.ScopeID != "scope" || a.Parent != "trigger" || a.Event.ID != "" || a.Event.ExecutionID != "" || a.Event.WorkID != "w1" ||
-		len(a.Checks) != 1 || a.Checks[0].Version != "v-old" || len(a.Records) != 1 || string(a.Records[0].Value) != "new" {
-		t.Fatalf("accept: %+v", a)
+	e := events[len(events)-1].Event
+	if e.ID == "ignored" || e.CausationID != "trigger" || e.ExecutionID != "" || e.WorkID != "w1" || e.Type != TypeProposal {
+		t.Fatalf("accepted: %+v", e)
+	}
+	// The write went with the Event, guarded by the version it read.
+	if got := string(h.KV(ChangeSets)["w1"]); got != "new" {
+		t.Fatalf("the Event's record: %q", got)
 	}
 	if err = s.Transact(ctx, storage.Guard{}, func(tx storage.Tx) error {
 		if _, err := tx.Get(Namespace, "question/w1"); !errors.Is(err, storage.ErrNotFound) {
@@ -95,8 +53,27 @@ func TestHostStoreCommits(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.commits) != 1 || !f.commits[0].Checks[0].Absent || len(f.commits[0].Puts) != 1 {
-		t.Fatalf("commit: %+v", f.commits)
+	if c := h.Commits(); len(c) != 1 || len(c[0].Checks) != 1 || !c[0].Checks[0].Absent || len(c[0].Puts) != 1 {
+		t.Fatalf("commit: %+v", c)
+	}
+	// A read that moved under the transaction refuses the Event and its
+	// writes together.
+	err = s.Transact(ctx, storage.Guard{}, func(tx storage.Tx) error {
+		if _, err := tx.Get(ChangeSets, "w1"); err != nil {
+			return err
+		}
+		if err := s.Transact(ctx, storage.Guard{}, func(inner storage.Tx) error {
+			return inner.Put(ChangeSets, "w1", []byte("moved"))
+		}); err != nil {
+			return err
+		}
+		if err := tx.Put(ChangeSets, "w1", []byte("stale")); err != nil {
+			return err
+		}
+		return record(tx, "scope", "trigger", domain.Event{Type: TypeProposal, Source: Type, DeliveryID: "proposal/2", WorkID: "w1"})
+	})
+	if err == nil || len(h.Events()) != seeded+1 || string(h.KV(ChangeSets)["w1"]) != "moved" {
+		t.Fatalf("a stale transaction: %v (%d events, %q)", err, len(h.Events())-seeded, h.KV(ChangeSets)["w1"])
 	}
 	// A second Event in one transaction, or one with no parent, is refused.
 	err = s.Transact(ctx, storage.Guard{}, func(tx storage.Tx) error {
@@ -109,7 +86,7 @@ func TestHostStoreCommits(t *testing.T) {
 		}
 		return record(tx, "scope", "trigger", e)
 	})
-	if !errors.Is(err, errOneEvent) || len(f.accepts) != 1 {
-		t.Fatalf("second event: %v (%d accepts)", err, len(f.accepts))
+	if !errors.Is(err, errOneEvent) || len(h.Events()) != seeded+1 {
+		t.Fatalf("second event: %v (%d events)", err, len(h.Events())-seeded)
 	}
 }

@@ -28,9 +28,14 @@ Open Conduit pins the version it bundles with a `tool` directive in its `go.mod`
 ## Developing
 
 ```sh
-make check                          # gofmt, vet, tests with -race, build, package
+make check                          # gofmt, vet, tests with -race, build, package, extension check
 make certify                        # certify with Open Conduit main
 make certify OPEN_CONDUIT_REF=v1.10.0
 ```
 
-`make package` writes the package directory to `dist/setup`. CI runs `make check`, and `make certify` against Open Conduit's `main` and its latest release. A release older than the commit `go.mod` requires is skipped.
+`make package` writes the package directory to `dist/setup`, and `make extension-check` lints it with `open-conduit extension check`: a playbook that names an operation neither the package nor Open Conduit registers fails. The package's own probes are allowed by name (`OWN_PROBES`), and a test keeps that list in step with the probes it serves.
+
+The tests run on core's test tooling, so none needs a real service or a real Claude Code:
+
+- `store_test.go` runs the KV store over `protocol/sdk/sdktest`, an in-memory host.
+- `daemon_session_test.go` and `daemon_changeset_test.go` run the package in the real daemon with `extensiontest`, with a scripted stand-in for the Claude Code CLI, and check the Setup page through the management client's pages, panels and actions. `extensiontest` builds `open-conduit` and `os` at the version `go.mod` pins, from its `tool` directives. CI runs `make check`, and `make certify` against Open Conduit's `main` and its latest release. A release older than the commit `go.mod` requires is skipped.
