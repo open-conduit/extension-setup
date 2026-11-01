@@ -240,7 +240,9 @@ func check(ctx context.Context, store storage.Store, host inproc.ConfigHost, now
 		if cs.BaseGeneration == "" {
 			cs = newChangeSet(base)
 		}
-		cs = refresh(ctx, cs, base, host, latest)
+		if cs, err = settle(ctx, tx, w, cs, base, host, latest); err != nil {
+			return err
+		}
 		st, err := states(tx, w, cs)
 		if err != nil {
 			return err

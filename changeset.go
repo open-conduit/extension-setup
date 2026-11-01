@@ -98,9 +98,12 @@ type changeSet struct {
 	BaseRedacted   string   `json:"base_redacted"`
 	Folders        []string `json:"folders,omitempty"`
 	Changes        []change `json:"changes"`
-	// Pending is a generation applied since the change set was last looked
-	// at, which may be its candidate.
-	Pending string `json:"pending,omitempty"`
+	// Pending is a generation that applied the change set's candidate and
+	// that setup.applied has not announced yet, with its hash: settle
+	// marks the changes applied as it moves the change set on, and the
+	// applied task announces it.
+	Pending     string `json:"pending,omitempty"`
+	PendingHash string `json:"pending_hash,omitempty"`
 }
 
 // change is one proposed edit. Value may hold reference text.
@@ -371,6 +374,34 @@ func refresh(ctx context.Context, cs changeSet, base inproc.ConfigBase, host inp
 	return cs
 }
 
+// settle is refresh for a change set the operator may have applied. When
+// the generation moved, and the new one is the change set's candidate (its
+// base plus its approved changes), it marks those changes applied and
+// leaves setup.applied pending before moving the change set onto the
+// generation. Whatever reads the change set first after an apply (the
+// Setup page reloading its review, the agent, the applied task) moves it
+// on, so each must settle it first: once moved, the base the candidate
+// was built on is gone.
+func settle(ctx context.Context, tx storage.Tx, w domain.Work, cs changeSet, base inproc.ConfigBase, host inproc.ConfigHost, latest uint64) (changeSet, error) {
+	if cs.BaseGeneration != base.Generation {
+		st, err := states(tx, w, cs)
+		if err != nil {
+			return cs, err
+		}
+		if cand, ids, diags := candidate(ctx, host, cs, st); len(ids) > 0 && len(diags) == 0 {
+			if hash, more, err := host.Validate(ctx, cand.Handle); err == nil && len(more) == 0 && hash == base.Hash {
+				for i, c := range cs.Changes {
+					if slices.Contains(ids, c.ID) {
+						cs.Changes[i].Applied = base.Generation
+					}
+				}
+				cs.Pending, cs.PendingHash = base.Generation, base.Hash
+			}
+		}
+	}
+	return refresh(ctx, cs, base, host, latest), nil
+}
+
 func compact(b json.RawMessage) []byte {
 	if len(b) == 0 {
 		return nil
@@ -401,9 +432,9 @@ func (t *Tools) changeSetFor(ctx context.Context, tx storage.Tx, w domain.Work, 
 		return cs, err
 	}
 	if !ok {
-		cs = newChangeSet(base)
+		return newChangeSet(base), nil
 	}
-	return refresh(ctx, cs, base, t.o.Config, latest), nil
+	return settle(ctx, tx, w, cs, base, t.o.Config, latest)
 }
 
 // lastTrigger is the Event that started the session's latest attempt: the
@@ -427,22 +458,18 @@ func lastTrigger(tx storage.Tx, work domain.ID) (domain.ID, error) {
 	return last.TriggerID, nil
 }
 
-// MarkApplied is the applied hook. When the active generation is an open
-// session's candidate (its base plus its approved changes), it marks those
-// changes applied, moves the change set onto the generation and accepts
-// setup.applied on the session's key, which wakes the agent.
+// MarkApplied is the applied hook. It settles each open session's change
+// set on the active generation and accepts setup.applied on the session's
+// key for the changes a generation applied, which wakes the agent. A change
+// set something else settled first (the Setup page reading its review
+// straight after the apply) has its setup.applied pending, and gets it
+// here.
 func MarkApplied(ctx context.Context, store storage.Store, host inproc.ConfigHost, accept AcceptFunc, now func() time.Time) error {
 	base, err := host.Base(ctx)
 	if err != nil {
 		return err
 	}
-	type session struct {
-		w    domain.Work
-		cs   changeSet
-		cand built
-		ids  []string
-	}
-	var sessions []session
+	var due []domain.Work
 	if err = store.Transact(ctx, storage.Guard{Now: now()}, func(tx storage.Tx) error {
 		works, err := tx.ListWorks()
 		if err != nil {
@@ -456,48 +483,45 @@ func MarkApplied(ctx context.Context, store storage.Store, host inproc.ConfigHos
 			if err != nil {
 				return err
 			}
-			if !ok || cs.BaseGeneration == base.Generation {
-				continue
-			}
-			st, err := states(tx, w, cs)
-			if err != nil {
-				return err
-			}
-			if cand, ids, diags := candidate(ctx, host, cs, st); len(ids) > 0 && len(diags) == 0 {
-				sessions = append(sessions, session{w, cs, cand, ids})
+			if ok && (cs.Pending != "" || cs.BaseGeneration != base.Generation) {
+				due = append(due, w)
 			}
 		}
 		return nil
 	}); err != nil {
 		return err
 	}
-	for _, s := range sessions {
-		hash, diags, err := host.Validate(ctx, s.cand.Handle)
-		if err != nil || len(diags) > 0 || hash != base.Hash {
-			continue
-		}
-		key, ok := sessionKey(s.w)
+	for _, w := range due {
+		key, ok := sessionKey(w)
 		if !ok {
 			continue
 		}
 		if err = store.Transact(ctx, storage.Guard{Now: now()}, func(tx storage.Tx) error {
-			cs, _, err := loadChangeSet(tx, s.w.ID)
-			if err != nil || cs.BaseGeneration != s.cs.BaseGeneration || len(cs.Changes) != len(s.cs.Changes) {
+			cs, ok, err := loadChangeSet(tx, w.ID)
+			if err != nil || !ok {
 				return err
-			}
-			for i, c := range cs.Changes {
-				if slices.Contains(s.ids, c.ID) {
-					cs.Changes[i].Applied = base.Generation
-				}
 			}
 			latest, err := tx.LatestSequence()
 			if err != nil {
 				return err
 			}
-			if err = saveChangeSet(tx, s.w.ID, refresh(ctx, cs, base, host, latest)); err != nil {
+			if cs, err = settle(ctx, tx, w, cs, base, host, latest); err != nil || cs.Pending == "" {
+				// Nothing applied this session's candidate: it moves on
+				// when it is next read.
 				return err
 			}
-			parent, err := lastTrigger(tx, s.w.ID)
+			var ids []string
+			for _, c := range cs.Changes {
+				if c.Applied == cs.Pending {
+					ids = append(ids, c.ID)
+				}
+			}
+			applied := Applied{Generation: cs.Pending, Hash: cs.PendingHash, Changes: ids}
+			cs.Pending, cs.PendingHash = "", ""
+			if err = saveChangeSet(tx, w.ID, cs); err != nil {
+				return err
+			}
+			parent, err := lastTrigger(tx, w.ID)
 			if errors.Is(err, storage.ErrNotFound) {
 				return errNoAttempt
 			}
@@ -505,9 +529,9 @@ func MarkApplied(ctx context.Context, store storage.Store, host inproc.ConfigHos
 				return err
 			}
 			at := now()
-			id := string(s.w.ID) + "/" + base.Generation
-			return accept(tx, s.w.ScopeID, parent, domain.Event{Type: TypeApplied, Source: Type, DeliveryID: "applied/" + id,
-				OccurredAt: at, ReceivedAt: at, CorrelationKey: &key, Data: payload(SchemaApplied, Applied{Generation: base.Generation, Hash: base.Hash, Changes: s.ids})})
+			id := string(w.ID) + "/" + applied.Generation
+			return accept(tx, w.ScopeID, parent, domain.Event{Type: TypeApplied, Source: Type, DeliveryID: "applied/" + id,
+				OccurredAt: at, ReceivedAt: at, CorrelationKey: &key, Data: payload(SchemaApplied, applied)})
 		}); err != nil && !errors.Is(err, errNoAttempt) {
 			return err
 		}
