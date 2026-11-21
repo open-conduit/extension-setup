@@ -17,6 +17,8 @@ func TestReferencesAndRedaction(t *testing.T) {
 		ok             bool
 	}{
 		"a reference":           {"/scopes/web/secret_refs/token", `"keyring:github-token"`, true},
+		"a stored reference":    {"/scopes/web/secret_refs/token", `"stored:github-token"`, true},
+		"a bad stored name":     {"/scopes/web/secret_refs/token", `"stored:Not A Name"`, false},
 		"a literal":             {"/scopes/web/secret_refs/token", `"ghp_abc"`, false},
 		"not a string":          {"/scopes/web/secret_refs/token", `{"x":1}`, false},
 		"a whole secret_refs":   {"/scopes/web/secret_refs", `{"token":"env:GH_TOKEN"}`, true},

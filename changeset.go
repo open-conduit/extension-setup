@@ -251,7 +251,7 @@ func candidate(ctx context.Context, host inproc.ConfigHost, cs changeSet, st map
 }
 
 // refsPattern is a secret reference, as `config set` accepts one.
-var refsPattern = regexp.MustCompile(`^(keyring:[a-z][a-z0-9_-]{0,62}|file:[a-z][a-z0-9_-]{0,62}|env:[A-Za-z_][A-Za-z0-9_]*|cmd:[^\r\n]+)$`)
+var refsPattern = regexp.MustCompile(`^(stored:[a-z][a-z0-9_-]{0,62}|keyring:[a-z][a-z0-9_-]{0,62}|file:[a-z][a-z0-9_-]{0,62}|env:[A-Za-z_][A-Za-z0-9_]*|cmd:[^\r\n]+)$`)
 
 // underSecretRefs reports whether pointer addresses a value in a
 // secret_refs object.
@@ -299,7 +299,7 @@ func checkReferences(pointer string, value json.RawMessage) error {
 		walk(v, isSecretRefs(pointer))
 	}
 	if bad {
-		return refuse("not_a_reference", "a secret_refs value is a reference (keyring:, file:, env:, cmd:): ask the operator to store the secret with open-conduit secret set and propose its reference")
+		return refuse("not_a_reference", "a secret_refs value is a reference (stored:, keyring:, file:, env:, cmd:): ask for the secret with setup.ask_secret and propose stored:NAME")
 	}
 	return nil
 }
