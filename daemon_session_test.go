@@ -199,6 +199,79 @@ func TestDaemonSetupSession(t *testing.T) {
 	}
 }
 
+// TestDaemonSecretRequest: the agent asks for a secret by name, the operator
+// stores it through the action's contract, and the agent is resumed knowing
+// only the name. The canary value is in no Event, panel, turn or daemon log.
+func TestDaemonSecretRequest(t *testing.T) {
+	const canary = "canary-value-7f3a91d2"
+	fake := t.TempDir()
+	claude, err := extensiontest.FakeClaude(fake,
+		extensiontest.Turn{State: "help", Calls: []extensiontest.Call{
+			{Operation: "setup.ask_secret", RequestID: "token", Input: map[string]any{"name": "github-token", "why": "The GitHub connection needs a token."}},
+		}},
+		extensiontest.Turn{State: "finished"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := setupBinding(fake, claude.Path)
+	binding["operations"] = []string{"read_context", "wait", "declare_outcome", "setup.say", "setup.ask", "setup.ask_secret"}
+	d := extensiontest.Daemon(t, extensiontest.Package("."), extensiontest.Options{Config: setupDaemonConfig(binding)})
+	c := d.Client()
+	ctx := context.Background()
+	res, err := c.InvokeAction(ctx, client.ActionTarget{ScopeID: "setup"}, "setup", "start", "opus", "start")
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	session := client.ActionTarget{WorkID: res.Event.RoutedWorkID}
+	offered := func() (client.Action, bool) {
+		acts, _ := c.Actions(ctx, session)
+		for _, a := range acts {
+			if a.Provider == "setup" && a.ID == "secret" {
+				return a, true
+			}
+		}
+		return client.Action{}, false
+	}
+	d.Until("the agent asked for the secret", 30*time.Second, func() bool { _, ok := offered(); return ok })
+	if a, _ := offered(); a.Secret != "github-token" || a.Prompt == "" {
+		t.Fatalf("the action: %+v", a)
+	}
+	// A value sent as either action's input is refused, and not repeated.
+	for _, action := range []string{"secret", "answer"} {
+		if _, err = c.InvokeAction(ctx, session, "setup", action, canary, "bad-"+action); err == nil || strings.Contains(err.Error(), canary) {
+			t.Fatalf("%s took the value as input: %v", action, err)
+		}
+	}
+	if _, err = c.SetSecret(ctx, "github-token", canary, "file"); err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	if _, err = c.InvokeAction(ctx, session, "setup", "secret", "github-token", "stored"); err != nil {
+		t.Fatalf("secret: %v", err)
+	}
+	d.Until("the session finished", 30*time.Second, func() bool {
+		w, _ := c.Work(ctx, session.WorkID)
+		return w.State == "completed"
+	})
+	turns := claude.Turns()
+	if len(turns) != 2 || !strings.Contains(turns[1].Input, "github-token") {
+		t.Fatalf("turns: %+v", turns)
+	}
+	page, err := c.Events(ctx, url.Values{"work_id": {session.WorkID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	panels, err := c.Panels(ctx, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, got := range map[string]string{"events": mustJSONString(page.Items), "panels": mustJSONString(panels), "turns": mustJSONString(turns), "log": d.Log()} {
+		if strings.Contains(got, canary) {
+			t.Errorf("the secret's value is in the %s", name)
+		}
+	}
+}
+
 func mustJSONString(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)

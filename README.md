@@ -4,6 +4,10 @@ Open Conduit's web setup assistant, as an installed extension package.
 
 From the web view's Setup page, the operator starts a session: a Claude Code agent running the setup playbook looks at the machine, says what it finds, asks what the operator wants and proposes config changes. The operator approves or rejects each one, validates them, and applies them. The agent never changes the config itself.
 
+A session can ask for a credential in the page: `setup.ask_secret` draws a password field through the public `extension.Action.Secret` contract, the web view stores the value as the signed-in operator, and the agent learns only that the name is stored.
+
+Sessions run only on `claude-code`, because it is the one executor whose shell can be turned off. Codex's sandbox limits what a command may do, but its agent can still run commands and read files.
+
 The package speaks only Open Conduit's extension protocol, through `protocol/sdk`. It is built from this repository and doesn't run inside Open Conduit.
 
 ## How it ships
@@ -16,7 +20,8 @@ Open Conduit pins the version it bundles with a `tool` directive in its `go.mod`
 ## Compatibility
 
 - **Protocol:** version 1.
-- **Open Conduit:** the commit this module's `go.mod` requires, or later. Earlier builds lack surfaces the manifest declares (`entry_gated`, route `binding`, `setup.first_run`, pages and `config_candidate`), and refuse the package at install and at start.
+- **Open Conduit:** the commit this module's `go.mod` requires, or later. A build that lacks a surface the manifest declares (`entry_gated`, route `binding`, `setup.first_run`, pages and `config_candidate`) refuses the package at install and at start.
+- **Secret requests:** `extension.Action.Secret` needs the commit `go.mod` requires, but no manifest field declares it, so an older build such as v6.10.0 still installs the package. It draws the request as a plain text box. The prompt there tells the operator not to paste the value, to store it with `open-conduit secret set` and to type only its name, and the action refuses anything but that name. A value pasted anyway is not stored or recorded, but it has been shown on screen and sent to the daemon.
 - **KV:** the change sets live in `setup.changesets` and the sessions' questions in `setup.sessions`, as they did when setup was compiled into Open Conduit, so sessions in flight carry over.
 
 ## Layout

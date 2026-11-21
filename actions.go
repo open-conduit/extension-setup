@@ -22,6 +22,9 @@ const (
 	ActionStart   = "start"
 	ActionMessage = "message"
 	ActionAnswer  = "answer"
+	// ActionSecret answers a request for a secret. The host stores the value
+	// and invokes it with the name alone.
+	ActionSecret = "secret"
 )
 
 // Actions is a `setup` entry's extension.ActionProvider. On the scope it
@@ -240,6 +243,11 @@ func (a Actions) Actions(ctx context.Context, t extension.ActionTarget) ([]exten
 		if err != nil || !ok {
 			return err
 		}
+		if q.Secret != "" {
+			out = append(out, extension.Action{ID: ActionSecret, Label: "Store the secret the assistant asked for",
+				Prompt: secretPrompt(q.Secret), Secret: q.Secret, Detail: q.Text, Awaited: true})
+			return nil
+		}
 		prompt := "your answer"
 		if len(q.Choices) > 0 {
 			prompt = "a choice (" + strings.Join(q.Choices, ", ") + ") or your own answer"
@@ -268,6 +276,8 @@ func (a Actions) Invoke(ctx context.Context, c extension.ActionCall) (extension.
 		return a.message(ctx, c)
 	case c.Action == ActionAnswer && c.Target.Work != nil:
 		return a.answer(ctx, c)
+	case c.Action == ActionSecret && c.Target.Work != nil:
+		return a.secretStored(ctx, c)
 	case c.Target.Work != nil && c.Target.Work.Kind == WorkKind && !c.Target.Work.State.Terminal():
 		if plan, err, ok := a.decide(ctx, c); ok {
 			return plan, err
@@ -332,6 +342,10 @@ func (a Actions) answer(ctx context.Context, c extension.ActionCall) (extension.
 	if !ok {
 		return refuseAction("not_outstanding", "the session has no open question to answer")
 	}
+	if q.Secret != "" {
+		// Text typed here would land in an Event, so a value never may.
+		return refuseAction("secret_requested", "the assistant asked for a secret: store it in the page's password field, not as an answer")
+	}
 	// Choices are suggestions: one picked by its text or number is given
 	// as written, and anything else is the operator's own answer.
 	answer := strings.TrimSpace(c.Input)
@@ -343,6 +357,40 @@ func (a Actions) answer(ctx context.Context, c extension.ActionCall) (extension.
 	}
 	key, _ := sessionKey(w)
 	return extension.ActionPlan{Event: domain.Event{Type: TypeAnswer, CorrelationKey: &key, Data: payload(SchemaAnswer, Answer{Question: q.ID, Answer: answer})}, Message: "answered: " + answer}, nil
+}
+
+// secretPrompt labels the secret action's field. A host older than
+// extension.Action.Secret ignores Secret and draws this prompt over a plain
+// text box, and a package can't tell or declare that it needs a newer one,
+// so the wording has to be safe in both: there, the operator stores the
+// value themselves and types only the name, which secretStored accepts.
+func secretPrompt(name string) string {
+	return "In a password field, enter the value. In a plain text box, don't: run open-conduit secret set with this name, then type only " + name
+}
+
+// secretStored answers a request for a secret once the host has stored it.
+// Its input is the name; anything else is refused without being repeated,
+// and the answer the agent gets holds only the name.
+func (a Actions) secretStored(ctx context.Context, c extension.ActionCall) (extension.ActionPlan, error) {
+	w := *c.Target.Work
+	var q Question
+	var ok bool
+	if err := a.transact(ctx, func(tx storage.Tx) error {
+		var e error
+		q, ok, e = question(tx, w)
+		return e
+	}); err != nil {
+		return extension.ActionPlan{}, err
+	}
+	if !ok || q.Secret == "" {
+		return refuseAction("not_outstanding", "the session is not waiting for a secret")
+	}
+	if c.Input != q.Secret {
+		return refuseAction("invalid_input", "give the name of the stored secret")
+	}
+	key, _ := sessionKey(w)
+	msg := "The secret " + q.Secret + " is in the daemon's secret store. Its value is not available to you."
+	return extension.ActionPlan{Event: domain.Event{Type: TypeAnswer, CorrelationKey: &key, Data: payload(SchemaAnswer, Answer{Question: q.ID, Answer: msg})}, Message: "passed the name to the assistant"}, nil
 }
 
 // choose matches input against choices: a choice's text (case-insensitive)

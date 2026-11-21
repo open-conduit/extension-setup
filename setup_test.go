@@ -167,6 +167,7 @@ func TestValidateBinding(t *testing.T) {
 	}
 	for name, b := range map[string]extension.RouteBinding{
 		"a shell":              {Executor: "shell", Config: json.RawMessage(`{"command":"true"}`)},
+		"codex":                {Executor: "codex", Config: json.RawMessage(`{"builtin_tools":[],"sandbox":"read-only"}`)},
 		"built-in tools unset": {Executor: Executor, Config: json.RawMessage(`{}`)},
 		"built-in tools on":    {Executor: Executor, Config: json.RawMessage(`{"builtin_tools":["Bash"]}`)},
 		"an unreadable config": {Executor: Executor, Config: json.RawMessage(`[]`)},
@@ -177,6 +178,24 @@ func TestValidateBinding(t *testing.T) {
 		if err := ValidateBinding(b); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+// TestSecretRequestLimits: the prompt fits an action's limit for the longest
+// name and tells someone at a plain text box not to enter the value, and the
+// reason fits the action's Detail.
+func TestSecretRequestLimits(t *testing.T) {
+	name := "a" + strings.Repeat("b", 62)
+	if p := secretPrompt(name); len(p) > 200 || !strings.Contains(p, "plain text box, don't") || !strings.HasSuffix(p, name) {
+		t.Fatalf("prompt (%d bytes): %s", len(p), p)
+	}
+	input := func(why string) domain.Payload {
+		b, _ := json.Marshal(map[string]string{"name": "github-token", "why": why})
+		return domain.Payload{Data: b}
+	}
+	var oe *extension.OperationError
+	if _, err := (&Tools{}).askSecret(context.Background(), extension.Authority{}, input(strings.Repeat("x", maxSecretWhy+1))); !errors.As(err, &oe) || oe.Code != "invalid_input" {
+		t.Fatalf("a reason over Detail's limit: %v", err)
 	}
 }
 
