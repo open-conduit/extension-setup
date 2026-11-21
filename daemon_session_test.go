@@ -12,11 +12,13 @@ import (
 	"encoding/json"
 	"errors"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	setup "github.com/open-conduit/extension-setup"
 	"github.com/open-conduit/open-conduit/client"
 	"github.com/open-conduit/open-conduit/extensiontest"
 )
@@ -268,6 +270,77 @@ func TestDaemonSecretRequest(t *testing.T) {
 	for name, got := range map[string]string{"events": mustJSONString(page.Items), "panels": mustJSONString(panels), "turns": mustJSONString(turns), "log": d.Log()} {
 		if strings.Contains(got, canary) {
 			t.Errorf("the secret's value is in the %s", name)
+		}
+	}
+}
+
+// TestDaemonModelCredential runs the scope first run writes, with no value
+// stored. A session without the model grant runs and has no API key. Once
+// the operator stores the key, a session with the grant gets it in its
+// environment, and the value is in no Event, panel, turn or daemon log.
+func TestDaemonModelCredential(t *testing.T) {
+	const canary = "canary-model-key-52c8e1"
+	fake := t.TempDir()
+	claude, err := extensiontest.FakeClaude(fake, extensiontest.Turn{State: "finished"}, extensiontest.Turn{State: "finished"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The stand-in records only whether the session got the key.
+	seen := filepath.Join(fake, "seen")
+	wrapper := filepath.Join(fake, "claude-wrapper")
+	script := "#!/bin/sh\nif [ \"$ANTHROPIC_API_KEY\" = '" + canary + "' ]; then echo key >> '" + seen + "'; else echo none >> '" + seen + "'; fi\nexec '" + claude.Path + "' \"$@\"\n"
+	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var scope map[string]any
+	if err := json.Unmarshal(setup.Scope("setup"), &scope); err != nil {
+		t.Fatal(err)
+	}
+	binding := scope["bindings"].([]any)[0].(map[string]any)
+	binding["requires"] = map[string]any{"toolbelt": "mcp", "inject": true, "resume": true}
+	config := binding["config"].(map[string]any)
+	config["binary"], config["playbook"], config["cold_turns"] = wrapper, "-", "resume"
+	config["env"] = map[string]string{"CLAUDE_CONFIG_DIR": filepath.Join(fake, "claude-config")}
+	file, _ := json.Marshal(map[string]any{"version": 1, "settings": map[string]any{}, "connections": []any{}, "scopes": []any{scope}})
+
+	d := extensiontest.Daemon(t, extensiontest.Package("."), extensiontest.Options{Config: file})
+	c := d.Client()
+	ctx := context.Background()
+	run := func(input, key string) string {
+		t.Helper()
+		res, err := c.InvokeAction(ctx, client.ActionTarget{ScopeID: "setup"}, "setup", "start", input, key)
+		if err != nil {
+			t.Fatalf("start %q: %v", input, err)
+		}
+		id := res.Event.RoutedWorkID
+		d.Until("the session finished", 30*time.Second, func() bool {
+			w, _ := c.Work(ctx, id)
+			return w.State == "completed"
+		})
+		return id
+	}
+	first := run("opus", "without")
+	if _, err := c.SetSecret(ctx, setup.ModelSecret, canary, "file"); err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	second := run("opus +model", "with")
+	got, err := os.ReadFile(seen)
+	if err != nil || strings.Join(strings.Fields(string(got)), ",") != "none,key" {
+		t.Fatalf("what the sessions got: %q %v", got, err)
+	}
+	for _, id := range []string{first, second} {
+		page, err := c.Events(ctx, url.Values{"work_id": {id}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		panels, err := c.Panels(ctx, client.ActionTarget{WorkID: id})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, s := range map[string]string{"events": mustJSONString(page.Items), "panels": mustJSONString(panels), "turns": mustJSONString(claude.Turns()), "log": d.Log()} {
+			if strings.Contains(s, canary) {
+				t.Errorf("the key is in the %s", name)
+			}
 		}
 	}
 }

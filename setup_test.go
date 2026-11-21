@@ -216,7 +216,7 @@ func TestInitSetup(t *testing.T) {
 	for _, g := range b.Grants {
 		names = append(names, g.Name)
 	}
-	if strings.Join(names, ",") != "shell,connectors" {
+	if strings.Join(names, ",") != "shell,connectors,model" {
 		t.Errorf("the scope's binding offers %v", names)
 	}
 	if !strings.Contains(string(b.Config), `"strict_mcp":true`) {
