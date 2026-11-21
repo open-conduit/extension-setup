@@ -47,6 +47,8 @@ const (
 	maxContext = 4000
 	maxChoices = 20
 	maxChoice  = 200
+	// maxSecretWhy is extension.Action's limit on Detail, which shows it.
+	maxSecretWhy = 3000
 )
 
 // Options configure Tools.
@@ -238,7 +240,7 @@ func (t *Tools) askSecret(ctx context.Context, a extension.Authority, in domain.
 	if !secretName.MatchString(input.Name) {
 		return extension.WaitPlan{}, refuse("invalid_input", "name must be a secret name: lower-case letters, digits, - and _, starting with a letter, at most 63 bytes")
 	}
-	why, err := text(input.Why, maxContext, "why")
+	why, err := text(input.Why, maxSecretWhy, "why")
 	if err != nil {
 		return extension.WaitPlan{}, err
 	}

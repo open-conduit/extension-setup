@@ -245,7 +245,7 @@ func (a Actions) Actions(ctx context.Context, t extension.ActionTarget) ([]exten
 		}
 		if q.Secret != "" {
 			out = append(out, extension.Action{ID: ActionSecret, Label: "Store the secret the assistant asked for",
-				Prompt: "the value of " + q.Secret, Secret: q.Secret, Detail: q.Text, Awaited: true})
+				Prompt: secretPrompt(q.Secret), Secret: q.Secret, Detail: q.Text, Awaited: true})
 			return nil
 		}
 		prompt := "your answer"
@@ -357,6 +357,15 @@ func (a Actions) answer(ctx context.Context, c extension.ActionCall) (extension.
 	}
 	key, _ := sessionKey(w)
 	return extension.ActionPlan{Event: domain.Event{Type: TypeAnswer, CorrelationKey: &key, Data: payload(SchemaAnswer, Answer{Question: q.ID, Answer: answer})}, Message: "answered: " + answer}, nil
+}
+
+// secretPrompt labels the secret action's field. A host older than
+// extension.Action.Secret ignores Secret and draws this prompt over a plain
+// text box, and a package can't tell or declare that it needs a newer one,
+// so the wording has to be safe in both: there, the operator stores the
+// value themselves and types only the name, which secretStored accepts.
+func secretPrompt(name string) string {
+	return "In a password field, enter the value. In a plain text box, don't: run open-conduit secret set with this name, then type only " + name
 }
 
 // secretStored answers a request for a secret once the host has stored it.
