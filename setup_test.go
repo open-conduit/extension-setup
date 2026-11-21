@@ -167,6 +167,7 @@ func TestValidateBinding(t *testing.T) {
 	}
 	for name, b := range map[string]extension.RouteBinding{
 		"a shell":              {Executor: "shell", Config: json.RawMessage(`{"command":"true"}`)},
+		"codex":                {Executor: "codex", Config: json.RawMessage(`{"builtin_tools":[],"sandbox":"read-only"}`)},
 		"built-in tools unset": {Executor: Executor, Config: json.RawMessage(`{}`)},
 		"built-in tools on":    {Executor: Executor, Config: json.RawMessage(`{"builtin_tools":["Bash"]}`)},
 		"an unreadable config": {Executor: Executor, Config: json.RawMessage(`[]`)},

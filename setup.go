@@ -94,6 +94,9 @@ type Question struct {
 	Text    string   `json:"text"`
 	Context string   `json:"context,omitempty"`
 	Choices []string `json:"choices,omitempty"`
+	// Secret, on a request for a secret, is the name it is stored under.
+	// The record never holds the value.
+	Secret string `json:"secret,omitempty"`
 	// Sequence is the acceptance watermark when it was asked: its answer
 	// comes after it.
 	Sequence uint64 `json:"sequence,omitempty"`
@@ -144,7 +147,10 @@ func ValidateExtension(config json.RawMessage, secretNames []string) error {
 	return strict(config, &c)
 }
 
-// Executor is the one executor a setup route may bind.
+// Executor is the one executor a setup route may bind: the only one whose
+// shell can be turned off. Codex's sandbox limits what a command may do, but
+// its agent can still run commands and read files, which the no-shell rule
+// exists to prevent.
 const Executor = "claude-code"
 
 // builtins are the core operations a session's agent may have besides the
@@ -160,7 +166,7 @@ var builtins = []string{"read_context", "wait", "declare_outcome"}
 // session, and the config file is their ceiling, so they are not checked.
 func ValidateBinding(b extension.RouteBinding) error {
 	if b.Executor != Executor {
-		return errors.New("a setup session runs on the claude-code executor")
+		return errors.New(`a setup session runs on the claude-code executor, the only one that can turn its shell off ("builtin_tools": []); a sandbox such as codex's still lets the agent run commands and read files`)
 	}
 	var c struct {
 		BuiltinTools *[]string `json:"builtin_tools"`

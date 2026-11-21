@@ -133,6 +133,9 @@ func Conversation(events []domain.AcceptedEvent) []extension.PanelMessage {
 			if q.Context != "" {
 				m.Text += "\n\n" + q.Context
 			}
+			if q.Secret != "" {
+				m.Label = "Assistant asks for the secret " + q.Secret
+			}
 			asked[q.ID] = len(out)
 		case TypeAnswer:
 			var x Answer

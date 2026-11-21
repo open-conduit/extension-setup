@@ -4,6 +4,10 @@ Open Conduit's web setup assistant, as an installed extension package.
 
 From the web view's Setup page, the operator starts a session: a Claude Code agent running the setup playbook looks at the machine, says what it finds, asks what the operator wants and proposes config changes. The operator approves or rejects each one, validates them, and applies them. The agent never changes the config itself.
 
+A session can ask for a credential in the page: `setup.ask_secret` draws a password field through the public `extension.Action.Secret` contract, the web view stores the value as the signed-in operator, and the agent learns only that the name is stored.
+
+Sessions run only on `claude-code`, because it is the one executor whose shell can be turned off. Codex's sandbox limits what a command may do, but its agent can still run commands and read files.
+
 The package speaks only Open Conduit's extension protocol, through `protocol/sdk`. It is built from this repository and doesn't run inside Open Conduit.
 
 ## How it ships

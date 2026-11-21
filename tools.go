@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -20,18 +21,20 @@ import (
 
 // Agent-facing operations.
 const (
-	OpSay      = "setup.say"
-	OpAsk      = "setup.ask"
-	OpPropose  = "setup.propose"
-	OpWithdraw = "setup.withdraw"
-	OpValidate = "setup.validate"
-	OpProbe    = "setup.probe"
-	OpRead     = "setup.read"
+	OpSay = "setup.say"
+	OpAsk = "setup.ask"
+	// OpAskSecret asks the operator to store a named secret in the page.
+	OpAskSecret = "setup.ask_secret"
+	OpPropose   = "setup.propose"
+	OpWithdraw  = "setup.withdraw"
+	OpValidate  = "setup.validate"
+	OpProbe     = "setup.probe"
+	OpRead      = "setup.read"
 )
 
 // Operations lists every tool operation (for binding operation lists).
 func Operations() []string {
-	return []string{OpSay, OpAsk, OpProbe, OpRead, OpPropose, OpWithdraw, OpValidate, OpTrace}
+	return []string{OpSay, OpAsk, OpAskSecret, OpProbe, OpRead, OpPropose, OpWithdraw, OpValidate, OpTrace}
 }
 
 // AskTimeout is how long a question waits for the operator. With no answer
@@ -79,7 +82,7 @@ func NewTools(o Options) (*Tools, error) {
 // Registration is the toolbelt registration.
 func (t *Tools) Registration() extension.Registration {
 	return extension.Registration{Version: extension.ContractVersion, Name: Type, EventTypes: []string{TypeMessage},
-		Operations: []extension.Operation{{Name: OpSay, Emit: t.say}, {Name: OpAsk, Wait: t.ask},
+		Operations: []extension.Operation{{Name: OpSay, Emit: t.say}, {Name: OpAsk, Wait: t.ask}, {Name: OpAskSecret, Wait: t.askSecret},
 			{Name: OpProbe, Handler: t.probe}, {Name: OpRead, Handler: t.read},
 			{Name: OpPropose, Handler: t.propose}, {Name: OpWithdraw, Handler: t.withdraw}, {Name: OpValidate, Handler: t.validate},
 			{Name: OpTrace, Handler: t.trace}}}
@@ -214,9 +217,42 @@ func (t *Tools) ask(ctx context.Context, a extension.Authority, in domain.Payloa
 	if err = scanText(append([]string{input.Question, input.Context}, input.Choices...)...); err != nil {
 		return extension.WaitPlan{}, err
 	}
+	return t.park(ctx, a, Question{Text: input.Question, Context: input.Context, Choices: input.Choices}, "the operator's answer")
+}
+
+// secretName is a name the daemon's secret store accepts.
+var secretName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)
+
+// askSecret parks the session on a request for a named secret, which the
+// page serves through extension.Action.Secret. The value goes from the
+// operator's browser to the daemon's secret store: the agent gets the name
+// back, and nothing here ever holds the value.
+func (t *Tools) askSecret(ctx context.Context, a extension.Authority, in domain.Payload) (extension.WaitPlan, error) {
+	var input struct {
+		Name string `json:"name"`
+		Why  string `json:"why"`
+	}
+	if err := decode(in.Data, &input, "{name, why}"); err != nil {
+		return extension.WaitPlan{}, err
+	}
+	if !secretName.MatchString(input.Name) {
+		return extension.WaitPlan{}, refuse("invalid_input", "name must be a secret name: lower-case letters, digits, - and _, starting with a letter, at most 63 bytes")
+	}
+	why, err := text(input.Why, maxContext, "why")
+	if err != nil {
+		return extension.WaitPlan{}, err
+	}
+	if err = scanText(why); err != nil {
+		return extension.WaitPlan{}, err
+	}
+	return t.park(ctx, a, Question{Text: why, Secret: input.Name}, "the operator storing the secret "+input.Name)
+}
+
+// park records q as the session's question and waits for its answer.
+func (t *Tools) park(ctx context.Context, a extension.Authority, q Question, waitingFor string) (extension.WaitPlan, error) {
 	now := t.o.Now()
 	id := requestID(ctx, a)
-	err = t.o.Store.Transact(ctx, storage.Guard{Now: now}, func(tx storage.Tx) error {
+	err := t.o.Store.Transact(ctx, storage.Guard{Now: now}, func(tx storage.Tx) error {
 		w, err := t.session(tx, a)
 		if err != nil {
 			return err
@@ -231,7 +267,7 @@ func (t *Tools) ask(ctx context.Context, a extension.Authority, in domain.Payloa
 		if err != nil {
 			return err
 		}
-		q := Question{ID: id, Text: input.Question, Context: input.Context, Choices: input.Choices, Sequence: seq}
+		q.ID, q.Sequence = id, seq
 		if err = t.o.Accept(tx, a.ScopeID, a.TriggerID, domain.Event{Type: TypeQuestion, Source: Type, DeliveryID: "question/" + id,
 			OccurredAt: now, ReceivedAt: now, WorkID: a.WorkID, Data: payload(SchemaQuestion, q)}); err != nil {
 			return err
@@ -247,7 +283,7 @@ func (t *Tools) ask(ctx context.Context, a extension.Authority, in domain.Payloa
 	}
 	deadline := now.Add(AskTimeout)
 	return extension.WaitPlan{
-		Wait: extension.WaitRequest{Match: domain.EventMatch{Types: []string{TypeAnswer}}, Timeout: &deadline, Description: "the operator's answer"},
+		Wait: extension.WaitRequest{Match: domain.EventMatch{Types: []string{TypeAnswer}}, Timeout: &deadline, Description: waitingFor},
 		Output: payload(SchemaTool, map[string]any{"asked": true, "deadline": deadline.Format(time.RFC3339),
 			"next": "end your turn now; any other call is refused until you are resumed with the answer, or after a day without one"}),
 	}, nil
