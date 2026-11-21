@@ -20,8 +20,7 @@ Open Conduit pins the version it bundles with a `tool` directive in its `go.mod`
 ## Compatibility
 
 - **Protocol:** version 1.
-- **Open Conduit:** the commit this module's `go.mod` requires, or later. A build that lacks a surface the manifest declares (`entry_gated`, route `binding`, `setup.first_run`, pages and `config_candidate`) refuses the package at install and at start.
-- **Secret requests:** `extension.Action.Secret` needs the commit `go.mod` requires, but no manifest field declares it, so an older build such as v6.10.0 still installs the package. It draws the request as a plain text box. The prompt there tells the operator not to paste the value, to store it with `open-conduit secret set` and to type only its name, and the action refuses anything but that name. A value pasted anyway is not stored or recorded, but it has been shown on screen and sent to the daemon.
+- **Open Conduit:** the commit this module's `go.mod` requires, or later. A build that lacks a surface the manifest declares (`entry_gated`, route `binding`, `setup.first_run`, pages, `config_candidate` and `secret_actions`) refuses the package at install and at start, so a host that can't take a secret privately never draws the request as a text box.
 - **KV:** the change sets live in `setup.changesets` and the sessions' questions in `setup.sessions`, as they did when setup was compiled into Open Conduit, so sessions in flight carry over.
 
 ## Layout

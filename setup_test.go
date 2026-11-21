@@ -181,14 +181,8 @@ func TestValidateBinding(t *testing.T) {
 	}
 }
 
-// TestSecretRequestLimits: the prompt fits an action's limit for the longest
-// name and tells someone at a plain text box not to enter the value, and the
-// reason fits the action's Detail.
+// TestSecretRequestLimits: the reason fits the action's Detail.
 func TestSecretRequestLimits(t *testing.T) {
-	name := "a" + strings.Repeat("b", 62)
-	if p := secretPrompt(name); len(p) > 200 || !strings.Contains(p, "plain text box, don't") || !strings.HasSuffix(p, name) {
-		t.Fatalf("prompt (%d bytes): %s", len(p), p)
-	}
 	input := func(why string) domain.Payload {
 		b, _ := json.Marshal(map[string]string{"name": "github-token", "why": why})
 		return domain.Payload{Data: b}

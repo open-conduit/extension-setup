@@ -22,7 +22,7 @@ func TestManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := m.Provides
-	if !p.EntryGated || !p.ConfigCandidate || p.Setup == nil || !p.Setup.FirstRun || len(p.Pages) != 1 || !p.Routes[0].Binding ||
+	if !p.EntryGated || !p.ConfigCandidate || !p.SecretActions || p.Setup == nil || !p.Setup.FirstRun || len(p.Pages) != 1 || !p.Routes[0].Binding ||
 		!m.Allows(protocol.PermissionConfigRead) || !m.Allows(protocol.PermissionProbes) {
 		t.Fatalf("manifest: %+v", m)
 	}

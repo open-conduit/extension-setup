@@ -40,7 +40,10 @@ func Manifest() protocol.Manifest {
 		Tasks:      []protocol.TaskDecl{{Name: AppliedTask, IntervalSeconds: 1}},
 		Setup:      &protocol.SetupDecl{Type: info.Type, Summary: info.Summary, Usage: info.Usage, FirstRun: info.FirstRun},
 		Actions:    true,
-		Panels:     true,
+		// setup.ask_secret's action takes its value through Action.Secret.
+		// A host too old to keep that value private refuses the package.
+		SecretActions: true,
+		Panels:        true,
 		// Core draws the page and reviews and applies the change set.
 		ConfigCandidate: true,
 		Render:          true,
