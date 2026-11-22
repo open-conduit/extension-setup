@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/open-conduit/open-conduit/domain"
 	"github.com/open-conduit/open-conduit/extension"
 	"github.com/open-conduit/open-conduit/extension/inproc"
 	"github.com/open-conduit/open-conduit/protocol"
@@ -103,9 +104,10 @@ const probeListTimeout = 5 * time.Second
 
 // hostProbes are the probes the host, its other extensions and its
 // executors offer (permission probes: probe.list and probe.run), by full
-// name. Each runs on the host.
-func hostProbes(host func() *sdk.Host) func(context.Context) map[string]extension.SetupProbe {
-	return func(ctx context.Context) map[string]extension.SetupProbe {
+// name. Each runs on the host for the session's scope, which is what the
+// host checks a connection argument against.
+func hostProbes(host func() *sdk.Host) func(context.Context, domain.ID) map[string]extension.SetupProbe {
+	return func(ctx context.Context, scope domain.ID) map[string]extension.SetupProbe {
 		h := host()
 		if h == nil {
 			return nil
@@ -121,7 +123,7 @@ func hostProbes(host func() *sdk.Host) func(context.Context) map[string]extensio
 			name := info.Name
 			p := extension.SetupProbe{Name: name, Summary: info.Summary,
 				Run: func(ctx context.Context, args map[string]string) (extension.ProbeResult, error) {
-					r, err := h.Probe(ctx, name, args)
+					r, err := h.ProbeIn(ctx, scope, name, args)
 					if err != nil {
 						return extension.ProbeResult{}, err
 					}
@@ -135,7 +137,7 @@ func hostProbes(host func() *sdk.Host) func(context.Context) map[string]extensio
 					return extension.ProbeResult{Command: r.Command, Output: output}, nil
 				}}
 			for _, a := range info.Args {
-				p.Args = append(p.Args, extension.ProbeArg{Name: a.Name, Summary: a.Summary, Required: a.Required})
+				p.Args = append(p.Args, extension.ProbeArg{Name: a.Name, Summary: a.Summary, Required: a.Required, Connection: a.Connection})
 			}
 			out[name] = p
 		}

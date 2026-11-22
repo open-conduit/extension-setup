@@ -64,7 +64,7 @@ type Options struct {
 	// OwnProbes are the extension's own probes, and Probes those of other
 	// extensions and executors, by full name.
 	OwnProbes Probes
-	Probes    func(context.Context) map[string]extension.SetupProbe
+	Probes    func(context.Context, domain.ID) map[string]extension.SetupProbe
 }
 
 // Tools implements the agent's operations.
