@@ -218,13 +218,13 @@ func (p Probes) tools(context.Context, map[string]string) (extension.ProbeResult
 
 // probes is every probe a session may run, by full name: the extension's
 // own and those the host collects from other extensions and executors.
-func (t *Tools) probes(ctx context.Context) map[string]extension.SetupProbe {
+func (t *Tools) probes(ctx context.Context, scope domain.ID) map[string]extension.SetupProbe {
 	out := map[string]extension.SetupProbe{}
 	for _, p := range t.o.OwnProbes.SetupProbes() {
 		out[Type+"."+p.Name] = p
 	}
 	if t.o.Probes != nil {
-		for name, p := range t.o.Probes(ctx) {
+		for name, p := range t.o.Probes(ctx, scope) {
 			out[name] = p
 		}
 	}
@@ -247,7 +247,7 @@ func (t *Tools) probe(ctx context.Context, a extension.Authority, in domain.Payl
 	if err != nil {
 		return domain.Payload{}, err
 	}
-	all := t.probes(ctx)
+	all := t.probes(ctx, a.ScopeID)
 	p, ok := all[input.Probe]
 	if !ok {
 		names := make([]string, 0, len(all))
