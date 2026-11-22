@@ -4,7 +4,7 @@ Open Conduit's web setup assistant, as an installed extension package.
 
 From the web view's Setup page, the operator starts a session: a Claude Code agent running the setup playbook looks at the machine, says what it finds, asks what the operator wants and proposes config changes. The operator approves or rejects each one, validates them, and applies them. The agent never changes the config itself.
 
-A session can ask for a credential in the page: `setup.ask_secret` draws a password field through the public `extension.Action.Secret` contract, the web view stores the value as the signed-in operator, and the agent learns only that the name is stored.
+A session can ask for a credential in the page: `setup.ask_secret` draws a password field and a file picker (for a multi-line value such as a GitHub App's private key) through the public `extension.Action.Secret` contract, the web view stores the value as the signed-in operator, and the agent learns only that the name is stored.
 
 A first-run session needs a model credential before it can do anything. With no Claude login on the machine, the operator adds `anthropic-api-key` on the Secrets page and turns on the `model` grant when starting the session. The key reaches only a session that took the grant, so a session without it keeps using a Claude login. A session that takes the grant before the key is stored fails its attempt.
 

@@ -2,7 +2,7 @@ module github.com/open-conduit/extension-setup
 
 go 1.24.2
 
-require github.com/open-conduit/open-conduit v1.14.1-0.20261122122036-92809456e6b1
+require github.com/open-conduit/open-conduit v1.14.1-0.20261122183130-e9b34b1fe48a
 
 require (
 	cel.dev/expr v0.24.0 // indirect
