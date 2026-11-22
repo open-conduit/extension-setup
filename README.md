@@ -6,6 +6,8 @@ From the web view's Setup page, the operator starts a session: a Claude Code age
 
 A session can ask for a credential in the page: `setup.ask_secret` draws a password field through the public `extension.Action.Secret` contract, the web view stores the value as the signed-in operator, and the agent learns only that the name is stored.
 
+A first-run session needs a model credential before it can do anything. With no Claude login on the machine, the operator adds `anthropic-api-key` on the Secrets page and turns on the `model` grant when starting the session. The key reaches only a session that took the grant, so a session without it keeps using a Claude login. A session that takes the grant before the key is stored fails its attempt.
+
 Sessions run only on `claude-code`, because it is the one executor whose shell can be turned off. Codex's sandbox limits what a command may do, but its agent can still run commands and read files.
 
 The package speaks only Open Conduit's extension protocol, through `protocol/sdk`. It is built from this repository and doesn't run inside Open Conduit.
@@ -20,8 +22,7 @@ Open Conduit pins the version it bundles with a `tool` directive in its `go.mod`
 ## Compatibility
 
 - **Protocol:** version 1.
-- **Open Conduit:** the commit this module's `go.mod` requires, or later. A build that lacks a surface the manifest declares (`entry_gated`, route `binding`, `setup.first_run`, pages and `config_candidate`) refuses the package at install and at start.
-- **Secret requests:** `extension.Action.Secret` needs the commit `go.mod` requires, but no manifest field declares it, so an older build such as v6.10.0 still installs the package. It draws the request as a plain text box. The prompt there tells the operator not to paste the value, to store it with `open-conduit secret set` and to type only its name, and the action refuses anything but that name. A value pasted anyway is not stored or recorded, but it has been shown on screen and sent to the daemon.
+- **Open Conduit:** the commit this module's `go.mod` requires, or later. A build that lacks a surface the manifest declares (`entry_gated`, route `binding`, `setup.first_run`, pages, `config_candidate` and `secret_actions`) refuses the package at install and at start, so a host that can't take a secret privately never draws the request as a text box.
 - **KV:** the change sets live in `setup.changesets` and the sessions' questions in `setup.sessions`, as they did when setup was compiled into Open Conduit, so sessions in flight carry over.
 
 ## Layout

@@ -16,15 +16,23 @@ const DefaultScopeID = "setup"
 // DefaultModels are the models a session may choose in the scope Scope writes.
 var DefaultModels = []string{"opus", "sonnet"}
 
+// ModelSecret is the secret the first-run scope's model grant selects. Its
+// default variable is ANTHROPIC_API_KEY.
+const ModelSecret = "anthropic-api-key"
+
 // DefaultGrants are what the operator may turn on for one session in the
-// scope Scope writes: a shell with file access, and their own MCP servers
-// and claude.ai connectors. Both are executor config over the binding's.
+// scope Scope writes: a shell with file access, their own MCP servers and
+// claude.ai connectors, and a stored model credential. The credential is a
+// grant so that a session without it keeps using a Claude login, and a
+// value not stored yet fails only a session that took it.
 func DefaultGrants() []any {
 	return []any{
 		map[string]any{"name": "shell", "label": "A shell: run commands and read and edit files on this machine",
 			"operations": []string{}, "config": map[string]any{"builtin_tools": []string{"Bash", "Read", "Edit", "Write", "Glob", "Grep"}}},
 		map[string]any{"name": "connectors", "label": "Your MCP servers and claude.ai connectors",
 			"operations": []string{}, "config": map[string]any{"strict_mcp": false}},
+		map[string]any{"name": "model", "label": "A stored Anthropic API key: first add " + ModelSecret + " on the Secrets page",
+			"operations": []string{}, "secret_names": []string{ModelSecret}},
 	}
 }
 
@@ -46,7 +54,7 @@ func Scope(id string) json.RawMessage {
 		"bindings": []any{map[string]any{"name": "agent", "executor": Executor, "requires": map[string]any{"toolbelt": "mcp"},
 			"operations": ops, "secret_names": []string{}, "grants": DefaultGrants(),
 			"config": map[string]any{"playbook": "setup", "args": "session", "builtin_tools": []string{}, "strict_mcp": true, "models": DefaultModels}}},
-		"secret_refs": map[string]any{},
+		"secret_refs": map[string]any{ModelSecret: "stored:" + ModelSecret},
 	}
 	b, _ := json.Marshal(scope)
 	return b
