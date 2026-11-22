@@ -344,7 +344,7 @@ func (a Actions) answer(ctx context.Context, c extension.ActionCall) (extension.
 	}
 	if q.Secret != "" {
 		// Text typed here would land in an Event, so a value never may.
-		return refuseAction("secret_requested", "the assistant asked for a secret: store it in the page's password field, not as an answer")
+		return refuseAction("secret_requested", "the assistant asked for a secret: store it in the page's secret form, not as an answer")
 	}
 	// Choices are suggestions: one picked by its text or number is given
 	// as written, and anything else is the operator's own answer.
