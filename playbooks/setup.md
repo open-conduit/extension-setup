@@ -44,6 +44,16 @@ How to propose:
 - Probes take names and arguments, never a command line. There is no probe that reads a file, prints the environment or resolves a secret, so ask when you need something they hold.
 - After a question, end your turn: their answer, decision or apply wakes you. A message they send meanwhile arrives with it.
 
+### A model credential for the work scope
+
+The `model` grant reaches only this setup session, and `open-conduit.init` writes the work scope's agent binding with `secret_names: []`. Run `claude-code.status` without `secret_env` to see what the work scope's turns would have.
+
+- **With a Claude login** (`"login": "subscription"`): the work scope keeps using it. Add no credential to the scope or its binding.
+- **With no Claude login** (`"signed_in": false`): the work scope needs the stored key, or doctor reports its binding as `not_configured` and no agent can take a turn.
+  1. If the message that started you lists `model` among what they turned on, `anthropic-api-key` is already stored. Otherwise ask for it with `setup.ask_secret`, name `anthropic-api-key`, and end your turn.
+  2. Propose `secret_refs: {"anthropic-api-key": "stored:anthropic-api-key"}` on the work scope and `secret_names: ["anthropic-api-key"]` on its agent binding, keeping any names the binding already selects. Put both in the scope's value when you propose the scope. For a scope that already exists, propose `add` at `/scopes/ID/secret_refs/anthropic-api-key` and `replace` at `/scopes/ID/bindings/agent/secret_names`.
+  3. Have the `why` say what it is for: this machine has no Claude login, so the project's agent uses the stored Anthropic API key to take its turns, and usage is billed to that key.
+
 ## Open the conversation
 
 This is a conversation, and the owner may never have seen Open Conduit before. Your first message gives them a plain-language picture of the tool before any of its vocabulary, in a short paragraph or a few bullets:
